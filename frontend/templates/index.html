@@ -1,70 +1,106 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Wave Function Collapse Generator</title>
+    <title>WFC Generation Dashboard</title>
     <style>
-        body { font-family: sans-serif; padding: 40px; max-width: 600px; margin: auto; }
-        .hidden { display: none; }
-        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 20px auto; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        img { max-width: 100%; height: auto; image-rendering: pixelated; margin-top: 20px;}
+        body { font-family: sans-serif; padding: 20px; max-width: 900px; margin: auto; background: #f4f4f9; }
+        .panel { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px;}
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 20px; }
+        .card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; }
+        .images-container { display: flex; justify-content: space-around; align-items: center; margin-top: 10px; }
+        .img-box { width: 100px; height: 100px; border: 1px dashed #ccc; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        img { max-width: 100%; max-height: 100%; image-rendering: pixelated; }
+        .badge { padding: 4px 8px; border-radius: 12px; font-size: 0.8em; font-weight: bold; }
+        .pending { background: #ffeaa7; color: #d35400; }
+        .complete { background: #55efc4; color: #00b894; }
+        .error { background: #ff7675; color: white; }
+        .timed-out { background: #ffeaa7; color: #d35400; border: 1px solid #d35400; }
     </style>
 </head>
 <body>
-    <h2>Procedural World Generator</h2>
-    <form id="uploadForm">
-        <label>1. Upload Seed Image (Max 64x64):</label><br>
-        <input type="file" id="seed_image" accept="image/png, image/jpeg" required><br><br>
-        <label>2. Pattern Patch Size (2-5):</label><br>
-        <input type="number" id="patch_size" value="3" min="2" max="5"><br><br>
-        <button type="submit">Generate World</button>
-    </form>
-    <div id="loadingArea" class="hidden" style="text-align: center;">
-        <div class="loader"></div>
-        <p id="statusText">Uploading and Queueing...</p>
+    <div class="panel">
+        <h2>Submit a New WFC Job</h2>
+        <form id="uploadForm">
+            <label>Seed Image (Max 128x128):</label>
+            <input type="file" id="seed_image" accept="image/png, image/jpeg" required>
+            
+            <label style="margin-left:15px;">Patch Size:</label>
+            <input type="number" id="patch_size" value="3" min="2" max="5" style="width:40px;">
+            
+            <label style="margin-left:15px;">Output Size:</label>
+            <select id="output_size">
+                <option value="64">64 x 64</option>
+                <option value="128" selected>128 x 128</option>
+                <option value="256">256 x 256</option>
+                <option value="512">512 x 512</option>
+                <option value="1024">1024 x 1024</option>
+            </select>
+            
+            <button type="submit" style="margin-left:15px;">Add to Queue</button>
+        </form>
     </div>
-    <div id="resultArea" class="hidden">
-        <h3>Generated Map:</h3>
-        <img id="finalImage" src="">
-    </div>
+
+    <h3>Recent Jobs</h3>
+    <div class="grid" id="jobsGrid">
+        </div>
+
     <script>
+        // 1. Handle the form submission
         document.getElementById('uploadForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            document.getElementById('uploadForm').classList.add('hidden');
-            document.getElementById('loadingArea').classList.remove('hidden');
-            
+            const btn = e.target.querySelector('button');
+            btn.innerText = "Uploading...";
+            btn.disabled = true;
+
             const formData = new FormData();
             formData.append('seed_image', document.getElementById('seed_image').files[0]);
             formData.append('patch_size', document.getElementById('patch_size').value);
+            formData.append('output_size', document.getElementById('output_size').value);
 
-            const response = await fetch('/upload', { method: 'POST', body: formData });
-            const data = await response.json();
-
-            if (data.error) {
-                alert("Error: " + data.error);
-                location.reload();
-                return;
-            }
-
-            document.getElementById('statusText').innerText = "Processing Wave Function Collapse...";
-            pollStatus(data.job_id);
+            await fetch('/upload', { method: 'POST', body: formData });
+            
+            e.target.reset();
+            btn.innerText = "Add to Queue";
+            btn.disabled = false;
+            fetchJobs(); // Instantly refresh the board
         });
 
-        async function pollStatus(jobId) {
-            const res = await fetch(`/status/${jobId}`);
-            const data = await res.json();
+        // 2. Fetch and render the dashboard
+        async function fetchJobs() {
+            const res = await fetch('/jobs');
+            const jobs = await res.json();
+            
+            const grid = document.getElementById('jobsGrid');
+            grid.innerHTML = ''; 
 
-            if (data.status === 'COMPLETE') {
-                document.getElementById('loadingArea').classList.add('hidden');
-                document.getElementById('resultArea').classList.remove('hidden');
-                document.getElementById('finalImage').src = data.output_url;
-            } else if (data.status === 'ERROR') {
-                alert("The background worker encountered an error.");
-                location.reload();
-            } else {
-                setTimeout(() => pollStatus(jobId), 2000);
-            }
+            jobs.forEach(job => {
+                // NEW: Convert "TIMED OUT" to "timed-out" for the CSS class
+                let safeClass = job.status.toLowerCase().replace(' ', '-');
+                let statusBadge = `<span class="badge ${safeClass}">${job.status}</span>`;
+                
+                let outputHtml = job.status === 'COMPLETE' 
+                    ? `<a href="${job.output_url}" target="_blank"><img src="${job.output_url}"></a>` 
+                    : `<small style="color:#888;">Generating...</small>`;
+                grid.innerHTML += `
+                    <div class="card">
+                        <div><strong>${job.id}</strong></div>
+                        <div style="font-size: 0.8em; color: #666; margin: 5px 0;">
+                            Grid: ${job.output_size}x${job.output_size} | Patch: ${job.patch_size}
+                        </div>
+                        ${statusBadge}
+                        <div class="images-container">
+                            <div class="img-box"><img src="${job.input_url}" title="Seed"></div>
+                            <span>➔</span>
+                            <div class="img-box">${outputHtml}</div>
+                        </div>
+                    </div>
+                `;
+            });
         }
+
+        // Poll every 3 seconds
+        setInterval(fetchJobs, 3000);
+        fetchJobs(); // Run once immediately on load
     </script>
 </body>
 </html>

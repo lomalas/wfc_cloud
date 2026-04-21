@@ -1,6 +1,7 @@
 import os
 import uuid
 import json
+import datetime
 from flask import Flask, render_template, request, jsonify
 from google.cloud import storage, pubsub_v1, firestore
 from PIL import Image
@@ -29,49 +30,68 @@ def upload_image():
         
     file = request.files['seed_image']
     patch_size = int(request.form.get('patch_size', 3))
+    output_size = int(request.form.get('output_size', 100)) # NEW!
     
-    if patch_size < 2 or patch_size > 5:
-        return jsonify({"error": "Patch size must be between 2 and 5"}), 400
-
     image_bytes = file.read()
     try:
         img = Image.open(io.BytesIO(image_bytes))
-        if img.width > 64 or img.height > 64:
-            return jsonify({"error": f"Image is {img.width}x{img.height}. Max allowed is 64x64."}), 400
-    except Exception as e:
+        if img.width > 128 or img.height > 128:
+            return jsonify({"error": f"Image is {img.width}x{img.height}. Max allowed is 128x128."}), 400
+    except Exception:
         return jsonify({"error": "Invalid image file"}), 400
 
     job_id = f"job-{uuid.uuid4().hex[:8]}"
     filename = f"{job_id}.png"
 
+    # Upload Input
     bucket = storage_client.bucket(INPUT_BUCKET)
     blob = bucket.blob(filename)
     blob.upload_from_string(image_bytes, content_type=file.content_type)
+    
+    input_url = f"https://storage.googleapis.com/{INPUT_BUCKET}/{filename}"
 
+    # Create Job Document with Timestamp
     doc_ref = firestore_client.collection("wfc_jobs").document(job_id)
     doc_ref.set({
         "status": "PENDING",
         "patch_size": patch_size,
-        "output_url": None
+        "output_size": output_size,
+        "input_url": input_url,
+        "output_url": None,
+        "timestamp": firestore.SERVER_TIMESTAMP
     })
 
+    # Dispatch to Queue
     work_order = {
         "job_id": job_id,
         "input_bucket": INPUT_BUCKET,
         "input_filename": filename,
         "output_bucket": OUTPUT_BUCKET,
-        "patch_size": patch_size
+        "patch_size": patch_size,
+        "output_size": output_size
     }
     
     publisher.publish(TOPIC_PATH, json.dumps(work_order).encode("utf-8"))
-    return jsonify({"job_id": job_id})
+    return jsonify({"success": True})
 
-@app.route('/status/<job_id>', methods=['GET'])
-def check_status(job_id):
-    doc = firestore_client.collection("wfc_jobs").document(job_id).get()
-    if not doc.exists:
-        return jsonify({"error": "Job not found"}), 404
-    return jsonify(doc.to_dict())
+# NEW ROUTE: For the Dashboard to fetch recent jobs
+@app.route('/jobs', methods=['GET'])
+def get_jobs():
+    # Get the 12 most recent jobs
+    docs = firestore_client.collection("wfc_jobs").order_by(
+        "timestamp", direction=firestore.Query.DESCENDING
+    ).limit(12).stream()
+    
+    jobs = []
+    for d in docs:
+        data = d.to_dict()
+        data['id'] = d.id
+        # Convert timestamp object to string for JSON serialization
+        if 'timestamp' in data and data['timestamp']:
+            data['timestamp'] = data['timestamp'].strftime("%H:%M:%S")
+        jobs.append(data)
+        
+    return jsonify(jobs)
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
