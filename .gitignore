@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.Python
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Numba JIT cache
+.numba_cache/
+**/__pycache__/
+
+# Terraform
+infrastructure/.terraform/
+infrastructure/.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+
+# Keep example tfvars but ignore real ones (they contain project IDs / repo paths)
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+
+# Secrets / credentials (never commit these)
+# GCP service account keys — shouldn't exist since we use Workload Identity
+# Federation, but guard against accidental commits.
+*-key.json
+*-credentials.json
+service-account*.json
+.env
+.env.*
+!.env.example
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs & temp
+*.log
+tmp/
