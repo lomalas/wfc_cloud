@@ -8,6 +8,7 @@ from google.cloud.exceptions import NotFound
 from PIL import Image
 import io
 
+
 TERMINAL_STATUSES = {"COMPLETE", "ERROR", "TIMED OUT", "CANCELLED"}
 
 app = Flask(__name__)
