@@ -194,6 +194,35 @@ resource "google_service_account_iam_member" "github_actions_wif_bind" {
 }
 
 # ------------------------------------------------------------------------
+# 5. APP ENGINE INITIALIZATION & SECURITY
+# ------------------------------------------------------------------------
+# Initialize the App Engine application
+resource "google_app_engine_application" "app" {
+  project     = var.project_id
+  location_id = "us-west1"
+  depends_on  = [google_project_service.enabled_apis]
+}
+
+# Grant the App Engine Default SA the required build permissions
+locals {
+  app_engine_roles = [
+    "roles/artifactregistry.admin",
+    "roles/storage.admin",
+    "roles/cloudbuild.builds.editor"
+  ]
+}
+
+resource "google_project_iam_member" "app_engine_sa_roles" {
+  for_each   = toset(local.app_engine_roles)
+  project    = var.project_id
+  role       = each.key
+  member     = "serviceAccount:${var.project_id}@appspot.gserviceaccount.com"
+  
+  # Ensure the app (and its service account) exists before binding roles
+  depends_on = [google_app_engine_application.app] 
+}
+
+# ------------------------------------------------------------------------
 # OUTPUTS (For GitHub Actions YAML variables)
 # ------------------------------------------------------------------------
 output "github_actions_service_account" {
